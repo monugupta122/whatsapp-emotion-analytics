@@ -1,0 +1,612 @@
+{
+  "name": "Whatsapp Message Capture Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "746749578526624",
+        "recipientPhoneNumber": "={{ $('WhatsApp Trigger').item.json.messages[0].from }}",
+        "textBody": "={{ $('Basic LLM Chain').all()[0].json.output.text }}",
+        "additionalFields": {}
+      },
+      "id": "99b68c19-d4a7-496b-b5ff-d557c3bf55bb",
+      "name": "WhatsApp Business Cloud",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        300,
+        540
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "bU7gM6TL5ewoNI79",
+          "name": "WhatsApp account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "81e209f8-65c3-45be-a60a-a28ad38a3a66",
+              "leftValue": "={{ $('WhatsApp Trigger').all()[0].json.messages }}",
+              "rightValue": "",
+              "operator": {
+                "type": "array",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c7d1857a-3dec-4f0a-be5c-d783e593cb25",
+      "name": "Check if message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -840,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {}
+      },
+      "id": "67473e93-dbd0-4015-a667-5e575f79f594",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        780
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "oW6ldvdB2cwcZjmG",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "03df5b7c-2f44-4d83-b22b-986cc8c4b774",
+      "name": "No Operation, do nothing",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -440,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"text\": \"California\",\n\t\"emotion\": \"happy\"\n}"
+      },
+      "id": "6514e44d-f5de-41e2-9ceb-af1d8ebb7728",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        -200,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  TIMEZONE: 'Asia/Kolkata',\n  GOOGLE: {\n    SHEET_URL: \"https://docs.google.com/spreadsheets/d/***********\", // sheet link goes here\n    SHEET_NAME: \"Sheet1\",\n    GEMINI_PROMPT: \"you are an ai chat bot, you need to listen and understand the user query and send specific response, also analyze the users message emotions and sentiments\"\n  }\n}"
+      },
+      "id": "8a61a021-73cb-4b6d-8c66-943b187f2d5e",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1080,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const moment = require('moment-timezone');\nconst requestData = [$('WhatsApp Trigger').all()[0].json];\nconst { TIMEZONE } = $('Config').all()[0].json;\nconst aiResponse = $('Basic LLM Chain').all()[0].json.output;\n\nconst rows = requestData\n  .filter(item => item.messages && item.messages.some(msg => msg.type === \"text\")) // Filter text messages\n  .map(item => {\n    const message = item.messages.find(msg => msg.type === \"text\"); // Get the first text message\n    const contact = item.contacts && item.contacts[0] ? item.contacts[0] : {};\n    // Converting Unix timestamp to IST\n    const istTimestamp = message.timestamp \n      ? moment.unix(parseInt(message.timestamp)).tz(TIMEZONE).format('YYYY-MM-DD HH:mm:ss')\n      : \"\";\n    \n    return {\n      json: {\n        SenderPhoneNumber: message.from || \"\",\n        MessageID: message.id || \"\",\n        Timestamp: istTimestamp,\n        MessageBody: message.text?.body || \"\",\n        ContactName: contact.profile?.name || \"\",\n        ReceiverPhoneNumber: item.metadata?.display_phone_number || \"\",\n        // PhoneNumberID: item.metadata?.phone_number_id || \"\",\n        Emotion: aiResponse.emotion\n      }\n    };\n  });\n\nreturn rows;"
+      },
+      "id": "276928fd-47bd-41a4-8d9d-a7bd0c278f4c",
+      "name": "Sender Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').all()[0].json.GOOGLE.SHEET_URL }}",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Config').all()[0].json.GOOGLE.SHEET_NAME }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "7c2db6c3-c00c-4670-ac7e-80fa6f891e5a",
+      "name": "Google Sheets - Sender",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        100,
+        540
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xm9fwEtUnD27Tkzc",
+          "name": "Google Sheets account 4"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const moment = require('moment-timezone');\nconst responseData = [$('WhatsApp Business Cloud').all()[0].json];\nconst { TIMEZONE } = $('Config').all()[0].json;\nconst aiResponse = $('Basic LLM Chain').all()[0].json.output;\nconst senderPayload = $('Sender Payload').all()[0].json;\n\nconst rows = responseData\n  .map(item => {\n    const message = item.messages[0];\n    \n    // Converting Unix timestamp to IST\n    const istTimestamp = moment().tz(TIMEZONE).format('YYYY-MM-DD HH:mm:ss');\n    \n    return {\n      json: {\n        SenderPhoneNumber: senderPayload.ReceiverPhoneNumber || \"\",\n        MessageID: message.id || \"\",\n        Timestamp: istTimestamp,\n        MessageBody: aiResponse?.text || \"\",\n        ContactName: \"me\",\n        ReceiverPhoneNumber: senderPayload.SenderPhoneNumber || \"\",\n        // PhoneNumberID: item.metadata?.phone_number_id || \"\",\n        Emotion: \"\"\n      }\n    };\n  });\n\nreturn rows;"
+      },
+      "id": "273ba854-ccbb-494a-bee5-89fcfe0a9e32",
+      "name": "Receiver Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').all()[0].json.GOOGLE.SHEET_URL }}",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Config').all()[0].json.GOOGLE.SHEET_NAME }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "SenderPhoneNumber",
+              "displayName": "SenderPhoneNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "MessageID",
+              "displayName": "MessageID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "MessageBody",
+              "displayName": "MessageBody",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ContactName",
+              "displayName": "ContactName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ReceiverPhoneNumber",
+              "displayName": "ReceiverPhoneNumber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Emotion",
+              "displayName": "Emotion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1a5175b-b35a-4a34-8bc8-6575dc67affb",
+      "name": "Google Sheets - Receiver",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        700,
+        540
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xm9fwEtUnD27Tkzc",
+          "name": "Google Sheets account 4"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "notification@demo.com",
+        "subject": "Escalation Alert | WhatsApp Message",
+        "html": "=<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Escalation Alert</title>\n    <style>\n        body {\n            font-family: Arial, sans-serif;\n            margin: 0;\n            padding: 0;\n            background-color: #f4f4f4;\n        }\n        .email-container {\n            max-width: 600px;\n            margin: 20px auto;\n            background-color: #ffffff;\n            border: 1px solid #dddddd;\n            border-radius: 8px;\n            padding: 20px;\n            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);\n        }\n        .email-header {\n            text-align: center;\n            font-size: 24px;\n            color: #333333;\n            margin-bottom: 20px;\n        }\n        .email-table {\n            width: 100%;\n            border-collapse: collapse;\n            margin-bottom: 20px;\n        }\n        .email-table th, .email-table td {\n            border: 1px solid #dddddd;\n            text-align: left;\n            padding: 10px;\n        }\n        .email-table th {\n            background-color: #f4f4f4;\n            color: #333333;\n        }\n        .email-footer {\n            text-align: center;\n            font-size: 12px;\n            color: #888888;\n        }\n    </style>\n</head>\n<body>\n    <div class=\"email-container\">\n        <div class=\"email-header\">\n            Escalation Alert\n        </div>\n        <table class=\"email-table\">\n            <thead>\n                <tr>\n                    <th>User Phone Number</th>\n                    <th>Message</th>\n                    <th>Emotion</th>\n                    <th>Timestamp</th>\n                </tr>\n            </thead>\n            <tbody>\n                <tr>\n                    <td>{{ $('WhatsApp Trigger').all()[0].json.messages[0].from }}</td>\n                    <td>{{ $('WhatsApp Trigger').all()[0].json.messages[0].text.body }}</td>\n                    <td>{{ $('Basic LLM Chain').all()[0].json.output.emotion }}</td>\n                    <td>{{ $('Google Sheets - Receiver').item.json.Timestamp }}</td>\n                </tr>\n            </tbody>\n        </table>\n        <div class=\"email-footer\">\n            This is an automated message. Please do not reply.\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "b6fb66b8-5976-4ff6-90e2-e6daeaf4c8bb",
+      "name": "Send Escalation Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1240,
+        440
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "5Vx4qN8J6PK8Tppy",
+          "name": "Wetility SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "731d6466-84a6-40ac-9c2e-fdbe837bb928",
+              "leftValue": "sad|angry|unsatisfied|escalated|urgent|help|emergency|problem",
+              "rightValue": "={{ $('Basic LLM Chain').all()[0].json.output?.emotion?.toLowerCase() || \"\" }}",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "06577749-a427-4627-b537-2a0f17363529",
+      "name": "Check For Escalations",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        920,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Escalation Alert",
+        "color": 6
+      },
+      "id": "169895d2-2953-4b2c-bc96-125a3fa08dd0",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('WhatsApp Trigger').all()[0].json.messages[0].text.body }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{ $('Config').all()[0].json.GOOGLE.GEMINI_PROMPT }}"
+            }
+          ]
+        }
+      },
+      "id": "49e3b337-8991-4cae-a706-79b9bf28541f",
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        -460,
+        540
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "fc4ceda7-c658-42ce-9d88-0be46106492c",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1300,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "notification@demo.com",
+        "subject": "Workflow failed | Whatsapp flow",
+        "html": "=<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Error Notification</title>\n    <style>\n        body {\n            font-family: Arial, sans-serif;\n            margin: 0;\n            padding: 0;\n            background-color: #f4f4f4;\n        }\n        .email-container {\n            max-width: 600px;\n            margin: 20px auto;\n            background-color: #ffffff;\n            border: 1px solid #dddddd;\n            border-radius: 8px;\n            padding: 20px;\n            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);\n        }\n        .email-header {\n            text-align: center;\n            font-size: 24px;\n            color: #333333;\n            margin-bottom: 20px;\n        }\n        .email-table {\n            width: 100%;\n            border-collapse: collapse;\n            margin-bottom: 20px;\n        }\n        .email-table th, .email-table td {\n            border: 1px solid #dddddd;\n            text-align: left;\n            padding: 10px;\n        }\n        .email-table th {\n            background-color: #f4f4f4;\n            color: #333333;\n        }\n        .email-table td a {\n            color: #007BFF;\n            text-decoration: none;\n        }\n        .email-footer {\n            text-align: center;\n            font-size: 12px;\n            color: #888888;\n        }\n    </style>\n</head>\n<body>\n    <div class=\"email-container\">\n        <div class=\"email-header\">\n            Error Notification\n        </div>\n        <table class=\"email-table\">\n            <thead>\n                <tr>\n                    <th>Workflow Name</th>\n                    <th>Workflow ID</th>\n                    <th>Error Execution</th>\n                    <th>Node</th>\n                    <th>Error</th>\n                </tr>\n            </thead>\n            <tbody>\n                <tr>\n                    <td>{{ $json.workflow.name }}</td>\n                    <td>{{ $json.workflow.id }}</td>\n                    <td><a href={{ $json.execution.url }}>View Error Execution</a></td>\n                    <td> {{ $json.execution.error.node.name }}</td>\n                    <td> {{ $json.execution.error.message }}</td>\n                </tr>\n                <!-- Additional rows can be added here -->\n            </tbody>\n        </table>\n        <div class=\"email-footer\">\n            This is an automated message. Please do not reply.\n        </div>\n    </div>\n</body>\n</html>\n",
+        "options": {}
+      },
+      "id": "4590f6cb-5a88-4c9b-9200-ed4680003531",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -1060,
+        1440
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "5Vx4qN8J6PK8Tppy",
+          "name": "Wetility SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Error Logging. Error mail will be sent",
+        "color": 6
+      },
+      "id": "c2d2bea4-5256-48d4-bad7-5d2a3776590f",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1500,
+        1320
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ]
+      },
+      "id": "3cc377ca-1a04-402a-b217-3531c884b7e8",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1300,
+        800
+      ],
+      "webhookId": "f1c68182-0b2c-4dd8-9485-06d2ff219551",
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "dig14cqZvujwvjV3",
+          "name": "WhatsApp Account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "WhatsApp Business Cloud": {
+      "main": [
+        [
+          {
+            "node": "Receiver Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if message": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Check if message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sender Payload": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Sender": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp Business Cloud",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receiver Payload": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Receiver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Receiver": {
+      "main": [
+        [
+          {
+            "node": "Check For Escalations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check For Escalations": {
+      "main": [
+        [
+          {
+            "node": "Send Escalation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Sender Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2de46ae8-0440-4b43-85e8-78486f82365e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6145e2f95387c30df4118d663c4b79fc953e0eb04df65c84f585f872c04c3233"
+  },
+  "id": "V0KbiogLjSvo25Bd",
+  "tags": []
+}

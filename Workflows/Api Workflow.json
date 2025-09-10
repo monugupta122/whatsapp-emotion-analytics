@@ -1,0 +1,440 @@
+{
+  "name": "Api Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const { META: { BOT_PHONE } } = $('#1 Config').all()[0].json;\n\nreturn items.map(item => {\n  const data = item.json;\n  let userPhone = '';\n  \n  // Incoming: user is sender, bot is receiver\n  if (data.SenderPhoneNumber != BOT_PHONE && data.ReceiverPhoneNumber == BOT_PHONE) {\n    userPhone = data.SenderPhoneNumber;\n  }\n  // Outgoing: bot is sender, user is receiver\n  else if (data.SenderPhoneNumber == BOT_PHONE && data.ReceiverPhoneNumber != BOT_PHONE) {\n    userPhone = data.ReceiverPhoneNumber;\n  }\n  \n  if (!userPhone) return null;\n  \n  return {\n    json: {\n      ...data,\n      UserPhoneNumber: userPhone,\n      IsIncoming: data.SenderPhoneNumber != BOT_PHONE // Flag for direction\n    }\n  };\n}).filter(Boolean); // Removing nulls"
+      },
+      "id": "0f74df0c-3fc5-412e-8e36-1baec658f918",
+      "name": "Google Sheet - Read All",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const moment = require('moment-timezone');\nconst timezone = $('#1 Config').item.json.TIMEZONE || 'Asia/Kolkata';\n\n// Group by UserPhoneNumber\nconst groups = {};\n\nitems.forEach(item => {\n  const data = item.json;\n  const userPhone = data.UserPhoneNumber;\n  if (!groups[userPhone]) {\n    groups[userPhone] = [];\n  }\n  groups[userPhone].push(data);\n});\n\n// For each group, sort by timestamp\nconst output = [];\nfor (const userPhone in groups) {\n  const contactName = groups[userPhone].find(m => m.UserPhoneNumber == userPhone)?.ContactName;\n  \n  const conversation = groups[userPhone]\n    .sort((a, b) => {\n      const timeA = moment.tz(a.Timestamp, 'YYYY-MM-DD HH:mm:ss', timezone).unix();\n      const timeB = moment.tz(b.Timestamp, 'YYYY-MM-DD HH:mm:ss', timezone).unix();\n      return timeA - timeB;\n    })\n    .map(msg => ({\n      ...msg,\n      Emotion: msg.Emotion || 'none', // Default for bot responses\n      Direction: msg.IsIncoming ? 'User to Bot' : 'Bot to User',\n    }));\n\n  output.push({\n      UserPhoneNumber: userPhone,\n      ContactName: contactName,\n      Conversation: conversation // sorted messages\n  });\n}\n\nreturn { data: output || [] };"
+      },
+      "id": "5adba199-6836-451d-8224-b8821669832a",
+      "name": "Chat data convertion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  TIMEZONE: 'Asia/Kolkata',\n  GOOGLE: {\n    SHEET_URL: \"https://docs.google.com/spreadsheets/d/***********\", // sheet link goes here\n    SHEET_NAME: \"Sheet1\"\n  },\n  META: {\n    BOT_PHONE: \"15551765360\" // Bot's actual phone number\n  }\n}"
+      },
+      "id": "f2fec49c-bd30-4915-a951-8388ee2f23c0",
+      "name": "#1 Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('#1 Config').all()[0].json.GOOGLE.SHEET_URL }}",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('#1 Config').all()[0].json.GOOGLE.SHEET_NAME }}",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "c95adf9a-010f-40f9-bee3-cbffd1ec71c3",
+      "name": "#1 Get Chats",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -40,
+        600
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "xm9fwEtUnD27Tkzc",
+          "name": "Google Sheets account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const emotionCounts = {};\n\nitems.forEach(item => {\n  const emotion = item.json.Emotion?.trim().toLowerCase();\n  if (emotion && emotion != '') { // Skipping bot responses\n    if (!emotionCounts[emotion]) {\n      emotionCounts[emotion] = 0;\n    }\n    emotionCounts[emotion]++;\n  }\n});\n\n\nconst totalEmotions = Object.values(emotionCounts).reduce((sum, count) => sum + count, 0);\n\nreturn [{\n  json: {\n    EmotionStatistics: emotionCounts, // { happy: 5, sad: 3, angry: 2 }\n    TotalAnalyzed: totalEmotions\n  }\n}];"
+      },
+      "id": "e1f6a1b9-bc24-44a3-ac89-f3d73bd386f3",
+      "name": "Emotion Analytics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "0f555abd-3c68-44e6-89ab-fcdb42a1de0d",
+              "leftValue": "={{ $('Webhook Api').all()[0].json.query?.action || \"\" }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "65da6f3d-c49f-45e8-95c9-817e01e50500",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -580,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Webhook Api').all()[0].json.query.action }}",
+                    "rightValue": "CHATS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Get Chats"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "a0b5b8fc-8229-434a-b1f5-77c4fa4fc5a5",
+                    "leftValue": "={{ $('Webhook Api').all()[0].json.query.action }}",
+                    "rightValue": "ANALYTICS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Get Analytics"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "90c2d581-efa4-440d-a691-e990929a47f3",
+      "name": "Switch Routes",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        180,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ \"success\": true, \"data\": $json.data }) }}",
+        "options": {}
+      },
+      "id": "5ee51695-b710-47e8-86cf-d9e5027cebf5",
+      "name": "#1 Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ \"success\": true, \"data\": $json }) }}",
+        "options": {}
+      },
+      "id": "97767529-072e-4710-be03-2a326c7215ef",
+      "name": "#2 Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ \"success\": false, \"message\": \"Invalid Request\" }) }}",
+        "options": {}
+      },
+      "id": "8de3d1db-6aa8-410b-9309-37782386b4c9",
+      "name": "#3 Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        900
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e8645f78-7552-4daf-8d09-50167564dd36",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        1080
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "notification@demo.com",
+        "subject": "Workflow failed | Whatsapp Api",
+        "html": "=<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Error Notification</title>\n    <style>\n        body {\n            font-family: Arial, sans-serif;\n            margin: 0;\n            padding: 0;\n            background-color: #f4f4f4;\n        }\n        .email-container {\n            max-width: 600px;\n            margin: 20px auto;\n            background-color: #ffffff;\n            border: 1px solid #dddddd;\n            border-radius: 8px;\n            padding: 20px;\n            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);\n        }\n        .email-header {\n            text-align: center;\n            font-size: 24px;\n            color: #333333;\n            margin-bottom: 20px;\n        }\n        .email-table {\n            width: 100%;\n            border-collapse: collapse;\n            margin-bottom: 20px;\n        }\n        .email-table th, .email-table td {\n            border: 1px solid #dddddd;\n            text-align: left;\n            padding: 10px;\n        }\n        .email-table th {\n            background-color: #f4f4f4;\n            color: #333333;\n        }\n        .email-table td a {\n            color: #007BFF;\n            text-decoration: none;\n        }\n        .email-footer {\n            text-align: center;\n            font-size: 12px;\n            color: #888888;\n        }\n    </style>\n</head>\n<body>\n    <div class=\"email-container\">\n        <div class=\"email-header\">\n            Error Notification\n        </div>\n        <table class=\"email-table\">\n            <thead>\n                <tr>\n                    <th>Workflow Name</th>\n                    <th>Workflow ID</th>\n                    <th>Error Execution</th>\n                    <th>Node</th>\n                    <th>Error</th>\n                </tr>\n            </thead>\n            <tbody>\n                <tr>\n                    <td>{{ $json.workflow.name }}</td>\n                    <td>{{ $json.workflow.id }}</td>\n                    <td><a href={{ $json.execution.url }}>View Error Execution</a></td>\n                    <td> {{ $json.execution.error.node.name }}</td>\n                    <td> {{ $json.execution.error.message }}</td>\n                </tr>\n                <!-- Additional rows can be added here -->\n            </tbody>\n        </table>\n        <div class=\"email-footer\">\n            This is an automated message. Please do not reply.\n        </div>\n    </div>\n</body>\n</html>\n",
+        "options": {}
+      },
+      "id": "433353f5-5c61-493a-b78b-710f974fe18e",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -580,
+        1080
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "5Vx4qN8J6PK8Tppy",
+          "name": "Wetility SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Error Logging. Error mail will be sent",
+        "color": 6
+      },
+      "id": "6f7a88df-b1f6-4ce9-b855-776881f3deb5",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1000,
+        980
+      ]
+    },
+    {
+      "parameters": {
+        "path": "b5dd968f-229f-4337-afcf-240f87b59db5",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "true"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET"
+              }
+            ]
+          }
+        }
+      },
+      "id": "2ef64abf-70be-4ac0-91c7-3473225ea0b7",
+      "name": "Webhook Api",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        680
+      ],
+      "webhookId": "b5dd968f-229f-4337-afcf-240f87b59db5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Sheet - Read All": {
+      "main": [
+        [
+          {
+            "node": "Chat data convertion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat data convertion": {
+      "main": [
+        [
+          {
+            "node": "#1 Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "#1 Config": {
+      "main": [
+        [
+          {
+            "node": "#1 Get Chats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "#1 Get Chats": {
+      "main": [
+        [
+          {
+            "node": "Switch Routes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emotion Analytics": {
+      "main": [
+        [
+          {
+            "node": "#2 Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "#1 Config",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "#3 Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Routes": {
+      "main": [
+        [
+          {
+            "node": "Google Sheet - Read All",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Emotion Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "#3 Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Api": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "624b65d0-2a60-416f-9323-c25105732753",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6145e2f95387c30df4118d663c4b79fc953e0eb04df65c84f585f872c04c3233"
+  },
+  "id": "FMlL9Z213gEFMCoq",
+  "tags": []
+}
